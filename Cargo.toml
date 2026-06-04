@@ -1,0 +1,50 @@
+# ABOUTME: Standalone headless-Chrome automation primitives shared by dravr crates
+# ABOUTME: Launch, persistent profiles, stealth, CDP input, cookie sessions, streaming capture, vision seam
+
+[package]
+name = "dravr-browser"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Headless-Chrome automation primitives: launch, persistent profiles, stealth, CDP input, and streaming network capture"
+repository = "https://github.com/dravr-ai/dravr-browser"
+publish = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[dependencies]
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+chromiumoxide = "0.9"
+futures = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2"
+tokio = { version = "1.45", features = ["time", "rt", "macros", "sync"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1.45", features = ["full", "test-util"] }
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+missing_const_for_fn = "allow"
+significant_drop_tightening = "allow"
+module_name_repetitions = "allow"
+absolute_paths = "deny"
+multiple_crate_versions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
+redundant_pub_crate = "allow"
