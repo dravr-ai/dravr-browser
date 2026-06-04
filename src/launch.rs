@@ -87,7 +87,7 @@ pub async fn launch_browser(
 ) -> BrowserResult<Browser> {
     if let Ok(connect_url) = env::var(CONNECT_URL_ENV) {
         if !connect_url.is_empty() {
-            return connect_to_existing_browser(&connect_url).await;
+            return connect_browser(&connect_url).await;
         }
     }
 
@@ -181,8 +181,9 @@ pub async fn launch_browser(
 ///
 /// `ws_url` is the `webSocketDebuggerUrl` from
 /// `http://127.0.0.1:PORT/json/version` when Chrome was launched with
-/// `--remote-debugging-port=PORT`.
-async fn connect_to_existing_browser(ws_url: &str) -> BrowserResult<Browser> {
+/// `--remote-debugging-port=PORT`. The remote browser's existing pages and
+/// cookies remain; callers just open new tabs against the same process.
+pub async fn connect_browser(ws_url: &str) -> BrowserResult<Browser> {
     info!(ws_url, "Connecting to externally-launched Chrome via CDP");
     let (browser, mut handler) =
         Browser::connect(ws_url.to_owned())

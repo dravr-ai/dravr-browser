@@ -65,7 +65,9 @@ pub use input::{
     cdp_click_at, cdp_insert_text, cdp_select_all_delete, click_element, element_exists,
     fill_input_field, get_element_center, read_visible_text,
 };
-pub use launch::{launch_browser, open_page_with_stealth, BrowserLaunchConfig, CONNECT_URL_ENV};
+pub use launch::{
+    connect_browser, launch_browser, open_page_with_stealth, BrowserLaunchConfig, CONNECT_URL_ENV,
+};
 pub use session::{capture_session, generate_session_id, inject_cookies, AuthSession, CookieData};
 pub use stealth::{apply_stealth, StealthOptions, CAPTURE_GLOBAL};
 pub use teardown_signal::{is_in_progress as is_browser_teardown_in_progress, TeardownGuard};
