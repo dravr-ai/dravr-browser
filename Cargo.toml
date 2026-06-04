@@ -8,7 +8,11 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Headless-Chrome automation primitives: launch, persistent profiles, stealth, CDP input, and streaming network capture"
 repository = "https://github.com/dravr-ai/dravr-browser"
-publish = false
+homepage = "https://github.com/dravr-ai/dravr-browser"
+documentation = "https://docs.rs/dravr-browser"
+keywords = ["headless-chrome", "browser", "automation", "cdp", "scraping"]
+categories = ["web-programming", "api-bindings"]
+readme = "README.md"
 
 [profile.release]
 lto = "thin"
