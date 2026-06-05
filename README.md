@@ -5,18 +5,37 @@
 [![CI](https://github.com/dravr-ai/dravr-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/dravr-ai/dravr-browser/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](#license)
 
-Reusable headless-Chrome automation primitives, extracted so multiple dravr
-crates share one battle-tested browser stack instead of each re-rolling it.
+A headless-Chrome automation library for **driving and scraping real, logged-in
+web apps**. It wraps the Chrome DevTools Protocol (via
+[`chromiumoxide`](https://crates.io/crates/chromiumoxide)) with the parts you
+actually need to automate an authenticated site — without re-implementing login
+persistence, bot-detection evasion, and response capture every time.
 
-Built on [`chromiumoxide`](https://crates.io/crates/chromiumoxide) (Chrome
-DevTools Protocol). It is intentionally **LLM-agnostic** — it never depends on a
-concrete model crate, so consumers (which may *be* LLM crates) avoid a
-dependency cycle.
+## What it does
 
-**Consumed by:**
-- [`embacle`](https://crates.io/crates/embacle) — its `web-ui` feature drives the
-  Claude.ai web UI through this crate.
-- `dravr-sciotte` — sport-activity scraping (login + capture).
+- **Log in once, stay logged in.** Launch Chrome against a persistent on-disk
+  profile, so cookies — including Cloudflare's `cf_clearance` and your session —
+  survive across runs. Sign in by hand once (headed); subsequent runs are
+  headless and already authenticated.
+- **Get past bot detection.** Injects stealth tweaks (via CDP, before any page
+  script runs) that hide the automation tells Cloudflare and Google sign-in
+  check for, so a headless browser loads the real page instead of a challenge.
+- **Read the page's own API responses.** A capture hook intercepts the
+  `fetch`/`XHR` responses the page makes — including **streaming SSE** bodies as
+  they arrive — so you extract data straight from the site's successful API
+  calls. (Replaying those calls yourself usually fails: you lose the origin,
+  referer, and per-request anti-replay tokens. Reading the page's own fetches
+  doesn't.)
+- **Drive the page like a human.** CDP-level mouse and keyboard input — click,
+  type, fill, locate, read — that real UIs and bot detectors accept.
+- **Snapshot and replay sessions.** Capture a logged-in session's cookies into a
+  serializable `AuthSession` and inject them into another browser.
+- **Vision fallback, LLM-agnostic.** A `VisionAnalyzer` trait you implement to
+  analyze page screenshots with your own model when selectors drift — the crate
+  itself never depends on any LLM.
+
+Typical uses: scraping data from sites behind a login, or programmatically
+driving a web UI (fill a form, submit, read the streamed response).
 
 ## Install
 
@@ -27,61 +46,55 @@ dravr-browser = "0.1"
 
 Requires a Chrome/Chromium binary on the host (auto-detected, or set `CHROME_PATH`).
 
-## What's here
+## Modules
 
 | Module | Purpose |
 |--------|---------|
-| `launch` | Launch Chrome with a **persistent profile** (cookies survive across runs) or attach to an external Chrome via CDP (`connect_browser`). |
-| `stealth` | Inject anti-detection JS plus an optional network-capture hook — including a streaming variant that tees SSE bodies as they arrive. |
+| `launch` | Launch Chrome with a persistent profile, or attach to an external Chrome via CDP (`connect_browser`). |
+| `stealth` | Anti-detection JS + an optional network-capture hook (`StealthOptions`), incl. a streaming variant that tees SSE bodies. |
 | `capture` | Read the capture buffer (`read_last_capture`) and parse SSE `data:` payloads (`parse_sse_data`). |
 | `input` | CDP mouse/keyboard input and DOM helpers (click, fill, locate, read). |
 | `session` | Capture / inject cookie sessions (`AuthSession`, `CookieData`). |
-| `vision` | The `VisionAnalyzer` seam consumers implement to supply screenshot analysis **without this crate depending on any LLM**. |
-| `teardown_signal` | Process-wide signal to suppress chromiumoxide's expected post-close WS-reset error. |
+| `vision` | The `VisionAnalyzer` seam for screenshot analysis. |
+| `teardown_signal` | Suppress chromiumoxide's expected post-close WS-reset error. |
 
-## Persistent-profile login
-
-A profile reused across launches keeps cookies (incl. Cloudflare `cf_clearance`)
-on disk, so an interactive login performed once survives subsequent headless runs.
+## Log in once, scrape headlessly
 
 ```rust,no_run
 use dravr_browser::{launch_browser, open_page_with_stealth, BrowserLaunchConfig, StealthOptions};
 
 # async fn example() -> dravr_browser::BrowserResult<()> {
+// First run: headed, so you can sign in. Cookies persist under the "my-app" profile.
 let config = BrowserLaunchConfig { headless: false, ..Default::default() };
-let browser = launch_browser(&config, Some("my-profile")).await?;
+let browser = launch_browser(&config, Some("my-app")).await?;
 let page = open_page_with_stealth(
     &browser,
     "https://example.com/login",
     &StealthOptions::stealth_only(),
 ).await?;
-// ... user signs in; cookies persist in the profile dir for next time ...
+// ... you sign in; the session is now saved in the profile dir ...
 # Ok(()) }
 ```
 
-## Streaming network capture
-
-The stealth hook can tee a streamed (SSE) response body as it arrives, so you
-can read tokens incrementally without scraping the DOM.
+## Capture the page's streamed API response
 
 ```rust,no_run
 use dravr_browser::{open_page_with_stealth, parse_sse_data, read_last_capture, StealthOptions};
 
 # async fn example(browser: &dravr_browser::Browser) -> dravr_browser::BrowserResult<()> {
-let stealth = StealthOptions::capture_stream("/completion");
+// Tee any response whose URL matches the pattern, including SSE streams.
+let stealth = StealthOptions::capture_stream("/api/.*/completion");
 let page = open_page_with_stealth(browser, "https://example.com/chat", &stealth).await?;
-// ... trigger a request ...
+// ... trigger the page action that fires the request ...
 if let Some(state) = read_last_capture(&page).await? {
     for event in parse_sse_data(&state.body) {
-        println!("SSE event: {event}");
+        println!("captured SSE event: {event}");
     }
 }
 # Ok(()) }
 ```
 
-## Vision seam
-
-`dravr-browser` stays LLM-free by exposing a trait the consumer implements:
+## Vision seam (bring your own model)
 
 ```rust,no_run
 use dravr_browser::{VisionAnalyzer, VisionError};
@@ -91,7 +104,7 @@ struct MyModel;
 #[async_trait::async_trait]
 impl VisionAnalyzer for MyModel {
     async fn analyze_screenshot(&self, prompt: &str, png_b64: &str) -> Result<String, VisionError> {
-        // forward to your own LLM provider …
+        // forward `prompt` + the screenshot to your own LLM/vision provider …
         # let _ = (prompt, png_b64);
         Ok(String::new())
     }
@@ -100,9 +113,6 @@ impl VisionAnalyzer for MyModel {
 
 ## Development
 
-This repo uses the shared [`dravr-build-config`](https://github.com/dravr-ai/dravr-build-config)
-submodule for hooks, lints, and architectural validation. After cloning:
-
 ```bash
 git submodule update --init --recursive
 git config core.hooksPath .build/hooks
@@ -110,7 +120,8 @@ cargo test
 .build/validation/validate.sh
 ```
 
-Releases are cut via the `Release` workflow: `gh workflow run release.yml --field bump=patch`.
+Releases are cut via the `Release` workflow:
+`gh workflow run release.yml --field bump=patch`.
 
 ## License
 
