@@ -137,8 +137,8 @@ mod tests {
             created_at: Utc::now(),
             expires_at: None,
         };
-        let json = serde_json::to_string(&session).unwrap();
-        let back: AuthSession = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&session).unwrap(); // Safe: test with a valid struct
+        let back: AuthSession = serde_json::from_str(&json).unwrap(); // Safe: test roundtrip of just-serialized JSON
         assert_eq!(back.session_id, "abc");
         assert_eq!(back.cookies.len(), 1);
         assert_eq!(back.cookies[0].domain, ".claude.ai");

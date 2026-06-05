@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn capture_state_deserializes() {
         let raw = r#"{"status":200,"body":"data: hi\n\n","done":true,"streaming":true}"#;
-        let s: CaptureState = serde_json::from_str(raw).unwrap();
+        let s: CaptureState = serde_json::from_str(raw).unwrap(); // Safe: test with valid inline JSON
         assert_eq!(s.status, 200);
         assert!(s.done);
         assert!(s.streaming);
