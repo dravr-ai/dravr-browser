@@ -30,7 +30,7 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.96.0
 
       - name: Configure git
         run: |
@@ -74,7 +74,7 @@ jobs:
         with:
           ref: v${{ needs.version.outputs.version }}
           submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.96.0
       - uses: Swatinem/rust-cache@v2
       - name: Publish
         env:
