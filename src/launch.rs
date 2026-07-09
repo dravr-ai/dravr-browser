@@ -38,6 +38,14 @@ pub struct BrowserLaunchConfig {
     /// Optional override for the `User-Agent` string. `None` selects a
     /// platform-appropriate default.
     pub user_agent: Option<String>,
+    /// Enable Chrome's OS-level sandbox. Defaults to `false` because the
+    /// primary deployment runs headless as root inside a container, where the
+    /// setuid/namespace sandbox cannot initialize and Chrome refuses to start
+    /// without `--no-sandbox`. Set to `true` (env
+    /// `DRAVR_BROWSER_ENABLE_SANDBOX=1`) on hosts that run as a non-root user
+    /// and can support the sandbox — recommended there, since navigation
+    /// targets untrusted third-party pages.
+    pub enable_sandbox: bool,
 }
 
 impl Default for BrowserLaunchConfig {
@@ -55,6 +63,9 @@ impl Default for BrowserLaunchConfig {
             user_agent: env::var("DRAVR_BROWSER_USER_AGENT")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            enable_sandbox: env::var("DRAVR_BROWSER_ENABLE_SANDBOX")
+                .ok()
+                .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
         }
     }
 }
@@ -134,9 +145,23 @@ pub async fn launch_browser(
         .clone()
         .unwrap_or_else(|| default_user_agent().to_owned());
 
+    builder = builder.arg("disable-gpu");
+
+    if !config.enable_sandbox {
+        // SECURITY: `--no-sandbox` disables Chrome's OS sandbox, which normally
+        // isolates the renderer from the host. It is the DEFAULT here because
+        // the primary deployment runs headless as root in a container, where
+        // the setuid/namespace sandbox cannot initialize and Chrome refuses to
+        // start without this flag. RISK: navigation targets untrusted
+        // third-party pages, so a renderer exploit would run with this
+        // process's privileges. MITIGATION: run as a non-root user and set
+        // `enable_sandbox = true` (`DRAVR_BROWSER_ENABLE_SANDBOX=1`) wherever
+        // the host supports the sandbox. Fully automatic detection would need
+        // `geteuid(2)` via FFI, which this crate forbids (`unsafe_code = deny`).
+        builder = builder.no_sandbox();
+    }
+
     builder = builder
-        .arg("disable-gpu")
-        .no_sandbox()
         .arg(("user-agent", user_agent.as_str()))
         .user_data_dir(profile_dir)
         .window_size(1920, 1080);
@@ -177,6 +202,18 @@ pub async fn launch_browser(
     Ok(browser)
 }
 
+/// Redact the per-session token from a CDP WebSocket debugger URL so it is safe
+/// to log or embed in an error. The final path segment of a
+/// `webSocketDebuggerUrl` (e.g. `.../devtools/browser/<guid>`) is a bearer
+/// token on a control channel — anyone holding it can drive the browser — so it
+/// is treated like a credential and never emitted in full.
+fn redact_ws_url(ws_url: &str) -> String {
+    ws_url.rsplit_once('/').map_or_else(
+        || "<redacted>".to_owned(),
+        |(prefix, _token)| format!("{prefix}/<redacted>"),
+    )
+}
+
 /// Connect to an externally-launched Chrome via its CDP WebSocket URL.
 ///
 /// `ws_url` is the `webSocketDebuggerUrl` from
@@ -184,12 +221,15 @@ pub async fn launch_browser(
 /// `--remote-debugging-port=PORT`. The remote browser's existing pages and
 /// cookies remain; callers just open new tabs against the same process.
 pub async fn connect_browser(ws_url: &str) -> BrowserResult<Browser> {
-    info!(ws_url, "Connecting to externally-launched Chrome via CDP");
+    info!(ws_url = %redact_ws_url(ws_url), "Connecting to externally-launched Chrome via CDP");
     let (browser, mut handler) =
         Browser::connect(ws_url.to_owned())
             .await
             .map_err(|e| BrowserError::Browser {
-                reason: format!("Failed to connect to Chrome at {ws_url}: {e}"),
+                reason: format!(
+                    "Failed to connect to Chrome at {}: {e}",
+                    redact_ws_url(ws_url)
+                ),
             })?;
     tokio::spawn(async move {
         while let Some(event) = handler.next().await {
@@ -245,6 +285,25 @@ mod tests {
     fn default_config_is_headless() {
         let cfg = BrowserLaunchConfig::default();
         assert!(cfg.headless);
+    }
+
+    #[test]
+    fn default_config_disables_sandbox_for_container_compat() {
+        let cfg = BrowserLaunchConfig::default();
+        assert!(!cfg.enable_sandbox);
+    }
+
+    #[test]
+    fn redact_ws_url_masks_session_token() {
+        let url = "ws://127.0.0.1:9222/devtools/browser/6c1a-secret-token";
+        let redacted = redact_ws_url(url);
+        assert!(!redacted.contains("6c1a-secret-token"));
+        assert_eq!(redacted, "ws://127.0.0.1:9222/devtools/browser/<redacted>");
+    }
+
+    #[test]
+    fn redact_ws_url_without_path_is_fully_masked() {
+        assert_eq!(redact_ws_url("no-slash-here"), "<redacted>");
     }
 
     #[test]
