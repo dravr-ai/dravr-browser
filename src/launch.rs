@@ -8,10 +8,11 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use futures::StreamExt;
+use tokio::time;
 use tracing::{debug, info};
 
 use crate::error::{BrowserError, BrowserResult};
@@ -46,6 +47,16 @@ pub struct BrowserLaunchConfig {
     /// and can support the sandbox — recommended there, since navigation
     /// targets untrusted third-party pages.
     pub enable_sandbox: bool,
+    /// Upper bound, in seconds, on the whole launch: spawning Chrome, reading
+    /// its `DevTools` endpoint, and completing the websocket connect. Applied on
+    /// both sides. chromiumoxide's own bound covers only the endpoint read (20s
+    /// by default) and leaves the websocket connect after it unbounded, so a
+    /// launch can hang well past that cap — sciotte's single-threaded test
+    /// suite lost two 15-minute CI runs to a launch that never returned on
+    /// 2026-09-04. Env `DRAVR_BROWSER_LAUNCH_TIMEOUT`; unset, empty, unparsable
+    /// or `0` all mean 30, generous for a cold container start and small next
+    /// to any job cap.
+    pub launch_timeout_secs: u64,
 }
 
 impl Default for BrowserLaunchConfig {
@@ -66,6 +77,11 @@ impl Default for BrowserLaunchConfig {
             enable_sandbox: env::var("DRAVR_BROWSER_ENABLE_SANDBOX")
                 .ok()
                 .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
+            launch_timeout_secs: env::var("DRAVR_BROWSER_LAUNCH_TIMEOUT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|&secs: &u64| secs > 0)
+                .unwrap_or(30),
         }
     }
 }
@@ -182,13 +198,27 @@ pub async fn launch_browser(
         builder = builder.chrome_executable(path);
     }
 
+    // One bound for the whole launch. chromiumoxide caps only the wait for
+    // Chrome to print its DevTools endpoint (20s by default); the websocket
+    // connect that follows has no bound there, and sciotte's single-threaded
+    // test suite hung thirteen minutes past that cap on 2026-09-04, twice on
+    // one sha, until the job timeout killed it. Setting chromiumoxide's cap to
+    // the same value keeps the knob honest above 20s; the outer timeout below is
+    // what covers the connect. The child is `kill_on_drop`, so a timed-out
+    // launch does not leak the process.
+    let secs = config.launch_timeout_secs;
+    builder = builder.launch_timeout(Duration::from_secs(secs));
+
     let browser_config = builder.build().map_err(|e| BrowserError::Browser {
         reason: format!("Failed to configure browser: {e}"),
     })?;
 
     let (browser, mut handler) =
-        Browser::launch(browser_config)
+        time::timeout(Duration::from_secs(secs), Browser::launch(browser_config))
             .await
+            .map_err(|_| BrowserError::Browser {
+                reason: format!("browser launch did not complete within {secs}s"),
+            })?
             .map_err(|e| BrowserError::Browser {
                 reason: format!("Failed to launch browser: {e}"),
             })?;
@@ -322,5 +352,54 @@ mod tests {
             .file_name()
             .and_then(|n| n.to_str())
             .is_some_and(|n| n.starts_with("dravr-browser-")));
+    }
+
+    #[test]
+    fn launch_timeout_zero_and_garbage_fall_back_to_default() {
+        // Set inside the test rather than via the harness environment so the
+        // assertion does not depend on what the developer's shell exports.
+        for bad in ["0", "", "soon"] {
+            env::set_var("DRAVR_BROWSER_LAUNCH_TIMEOUT", bad);
+            assert_eq!(
+                BrowserLaunchConfig::default().launch_timeout_secs,
+                30,
+                "{bad:?}"
+            );
+        }
+        env::set_var("DRAVR_BROWSER_LAUNCH_TIMEOUT", "7");
+        assert_eq!(BrowserLaunchConfig::default().launch_timeout_secs, 7);
+        env::remove_var("DRAVR_BROWSER_LAUNCH_TIMEOUT");
+    }
+
+    /// The outer bound, made to fire: a "Chrome" that starts, accepts whatever
+    /// arguments it is handed, and never prints its `DevTools` endpoint. With
+    /// `launch_timeout_secs: 1` the outer timeout is what answers — it starts
+    /// before the spawn, so its deadline precedes chromiumoxide's own. The step
+    /// chromiumoxide leaves unbounded, the websocket connect after the endpoint
+    /// is read, needs a fake CDP server to reproduce; the outer timeout covers
+    /// it by construction, since it wraps the whole launch. chromiumoxide sets
+    /// `kill_on_drop` on the child, so the timed-out sleeper does not outlive
+    /// the test.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn launch_times_out_when_chrome_never_answers() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = ephemeral_profile_dir();
+        fs::create_dir_all(&dir).unwrap(); // Safe: test setup under temp_dir
+        let fake = dir.join("chrome-that-never-answers.sh");
+        fs::write(&fake, "#!/bin/sh\nexec sleep 30\n").unwrap(); // Safe: test setup
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap(); // Safe: test setup
+
+        let cfg = BrowserLaunchConfig {
+            chrome_path: Some(fake.to_string_lossy().into_owned()),
+            launch_timeout_secs: 1,
+            ..BrowserLaunchConfig::default()
+        };
+        let err = launch_browser(&cfg, None).await.unwrap_err();
+        assert!(
+            matches!(&err, BrowserError::Browser { reason } if reason.contains("did not complete within 1s")),
+            "expected the launch timeout, got: {err}"
+        );
     }
 }
