@@ -75,8 +75,7 @@ impl Default for BrowserLaunchConfig {
                 .ok()
                 .filter(|s| !s.is_empty()),
             enable_sandbox: env::var("DRAVR_BROWSER_ENABLE_SANDBOX")
-                .ok()
-                .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
+                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
             launch_timeout_secs: env::var("DRAVR_BROWSER_LAUNCH_TIMEOUT")
                 .ok()
                 .and_then(|v| v.parse().ok())
