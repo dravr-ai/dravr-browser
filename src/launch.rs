@@ -142,7 +142,13 @@ pub async fn launch_browser(
         match fs::create_dir_all(&dir) {
             Ok(()) => dir,
             Err(e) => {
-                debug!(error = %e, dir = %dir.display(), "Failed to create persistent profile dir, falling back to ephemeral");
+                // The profile id is usually a consumer's session id, a bearer,
+                // so the log names the base directory and never the profile's.
+                debug!(
+                    error = %e,
+                    base_dir = %config.profile_base_dir.display(),
+                    "Failed to create persistent profile dir, falling back to ephemeral"
+                );
                 ephemeral_profile_dir()
             }
         }
@@ -187,8 +193,10 @@ pub async fn launch_browser(
             |id| proxy_url.replace("{session_id}", id),
         );
         builder = builder.arg(("proxy-server", resolved.as_str()));
+        // Neither the resolved URL (it carries the proxy's credentials) nor
+        // the profile id substituted into it (a bearer session id) is logged.
         debug!(
-            proxy_id = %profile_id.unwrap_or("(ephemeral)"),
+            sticky = profile_id.is_some(),
             "Routing browser through proxy"
         );
     }
