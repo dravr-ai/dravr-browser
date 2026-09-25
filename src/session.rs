@@ -4,8 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::time::SystemTime;
-
 use chromiumoxide::cdp::browser_protocol::network::CookieParam;
 use chromiumoxide::Page;
 use chrono::{DateTime, Utc};
@@ -95,32 +93,53 @@ pub async fn capture_session(page: &Page) -> BrowserResult<AuthSession> {
     }
 
     Ok(AuthSession {
-        session_id: generate_session_id(),
+        session_id: generate_session_id()?,
         cookies: cookie_data,
         created_at: Utc::now(),
         expires_at: None,
     })
 }
 
-/// Generate a unique session identifier from the current system time.
-#[must_use]
-pub fn generate_session_id() -> String {
-    let d = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    format!("{:x}-{:x}", d.as_secs(), d.subsec_nanos())
+/// Bytes of operating-system randomness in a session id: 128 bits, beyond the
+/// reach of guessing.
+const SESSION_ID_BYTES: usize = 16;
+
+/// Lowercase hex digits, indexed by nibble.
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+/// Mint a session id from the operating system's CSPRNG, hex-encoded: 32
+/// lowercase hex digits carrying 128 random bits.
+///
+/// A consumer that holds many users' sessions reaches one by naming its id, so
+/// the id is a bearer and has to be unguessable. An id read off the clock is
+/// not: its seconds are the session's wall time and its nanoseconds leave a
+/// range small enough to search. Hex keeps the id safe where it is used
+/// verbatim — as a Chrome profile directory name and in the proxy URL's
+/// `{session_id}` placeholder ([`crate::BrowserLaunchConfig::proxy_url`]).
+///
+/// # Errors
+///
+/// [`BrowserError::Browser`] when the operating system's random source fails.
+pub fn generate_session_id() -> BrowserResult<String> {
+    let mut bytes = [0u8; SESSION_ID_BYTES];
+    getrandom::fill(&mut bytes).map_err(|e| BrowserError::Browser {
+        reason: format!("Failed to generate a session id: {e}"),
+    })?;
+    Ok(bytes
+        .iter()
+        .flat_map(|byte| {
+            [
+                HEX_DIGITS[usize::from(byte >> 4)],
+                HEX_DIGITS[usize::from(byte & 0x0f)],
+            ]
+        })
+        .map(char::from)
+        .collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn session_id_is_nonempty_and_hyphenated() {
-        let id = generate_session_id();
-        assert!(id.contains('-'));
-        assert!(!id.starts_with('-'));
-    }
 
     #[test]
     fn auth_session_roundtrips_json() {

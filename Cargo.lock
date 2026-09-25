@@ -251,6 +251,7 @@ dependencies = [
  "chromiumoxide",
  "chrono",
  "futures",
+ "getrandom",
  "serde",
  "serde_json",
  "thiserror",
