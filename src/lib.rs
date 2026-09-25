@@ -63,7 +63,7 @@ pub use capture::{parse_sse_data, read_last_capture, CaptureState};
 pub use error::{BrowserError, BrowserResult};
 pub use input::{
     cdp_click_at, cdp_insert_text, cdp_select_all_delete, click_element, element_exists,
-    fill_input_field, get_element_center, read_visible_text,
+    fill_input_field, get_element_center, read_visible_text, tick_checkbox,
 };
 pub use launch::{
     connect_browser, launch_browser, open_page_with_stealth, BrowserLaunchConfig, CONNECT_URL_ENV,

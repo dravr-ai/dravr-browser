@@ -245,6 +245,51 @@ pub async fn click_element(page: &Page, selector: &str) -> BrowserResult<()> {
     Ok(())
 }
 
+/// Tick the checkbox `selector` names — the checkbox itself, or the element
+/// that wraps it (a `<label>`) — unless it is already ticked.
+///
+/// `selector` goes to `querySelector` whole, so a comma-separated list matches
+/// the first element in document order that fits any part of it. A form that
+/// refuses to submit until a consent box is ticked is otherwise a submission
+/// that silently never happens, so a box that is missing, or still unticked
+/// after the click, is an error rather than a skipped step.
+pub async fn tick_checkbox(page: &Page, selector: &str) -> BrowserResult<()> {
+    let escaped = escape_js_selector(selector);
+    let js = format!(
+        r#"(function() {{
+            var el = document.querySelector("{escaped}");
+            if (!el) return "missing";
+            var box = el.matches('input[type="checkbox"]') ? el : el.querySelector('input[type="checkbox"]');
+            if (!box) return "missing";
+            if (box.checked) return "ticked";
+            el.click();
+            return box.checked ? "ticked" : "unticked";
+        }})()"#
+    );
+
+    let result = page.evaluate(js).await.map_err(|e| BrowserError::Browser {
+        reason: format!("Failed to tick checkbox '{selector}': {e}"),
+    })?;
+
+    let state = result
+        .value()
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default();
+
+    match state.as_str() {
+        "ticked" => {
+            debug!(selector, "Checkbox ticked");
+            Ok(())
+        }
+        "missing" => Err(BrowserError::Interaction {
+            reason: format!("Element not found for checkbox selector: {selector}"),
+        }),
+        _ => Err(BrowserError::Interaction {
+            reason: format!("Checkbox {selector} stayed unticked after a click"),
+        }),
+    }
+}
+
 /// Read visible text from the first matching element, or `None` if missing/hidden.
 pub async fn read_visible_text(page: &Page, selector: &str) -> Option<String> {
     let escaped = escape_js_selector(selector);
