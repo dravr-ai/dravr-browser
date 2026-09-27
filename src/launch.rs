@@ -7,8 +7,7 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::process;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use futures::StreamExt;
@@ -16,6 +15,7 @@ use tokio::time;
 use tracing::{debug, info};
 
 use crate::error::{BrowserError, BrowserResult};
+use crate::session::generate_session_id;
 use crate::stealth::{apply_stealth, StealthOptions};
 
 /// Environment variable holding a CDP WebSocket URL to attach to an
@@ -127,32 +127,10 @@ pub async fn launch_browser(
             .arg(("disable-features", "WebAuthentication"));
     }
 
-    let profile_dir = profile_id.map_or_else(ephemeral_profile_dir, |id| {
-        let safe_id: String = id
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        let dir = config.profile_base_dir.join(&safe_id);
-        match fs::create_dir_all(&dir) {
-            Ok(()) => dir,
-            Err(e) => {
-                // The profile id is usually a consumer's session id, a bearer,
-                // so the log names the base directory and never the profile's.
-                debug!(
-                    error = %e,
-                    base_dir = %config.profile_base_dir.display(),
-                    "Failed to create persistent profile dir, falling back to ephemeral"
-                );
-                ephemeral_profile_dir()
-            }
-        }
-    });
+    let profile_dir = match profile_id {
+        None => ephemeral_profile_dir()?,
+        Some(id) => persistent_profile_dir(config, id)?,
+    };
 
     // `.hide()` removes the native `navigator.webdriver=true` Blink injects
     // under headless+CDP and suppresses the automation infobar.
@@ -301,17 +279,48 @@ pub async fn open_page_with_stealth(
     Ok(page)
 }
 
-/// Build an ephemeral profile path under `env::temp_dir()` with a process-id
-/// plus nanosecond suffix to avoid `SingletonLock` conflicts.
-fn ephemeral_profile_dir() -> PathBuf {
-    env::temp_dir().join(format!(
-        "dravr-browser-{}",
-        process::id()
-            + SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .subsec_nanos()
-    ))
+/// Build an ephemeral profile path under `env::temp_dir()`, named by 128
+/// random bits so no two launches share a directory.
+///
+/// Chrome refuses a profile another process holds (`SingletonLock`), so two
+/// ephemeral launches that land on one directory fail the second. A name read
+/// off the clock did exactly that when launches started within the clock's
+/// resolution of each other.
+///
+/// # Errors
+///
+/// [`BrowserError::Browser`] when the operating system's random source fails.
+fn ephemeral_profile_dir() -> BrowserResult<PathBuf> {
+    Ok(env::temp_dir().join(format!("dravr-browser-{}", generate_session_id()?)))
+}
+
+/// The persistent profile directory for `id` under the configured base,
+/// created if missing; an ephemeral one when it cannot be created.
+fn persistent_profile_dir(config: &BrowserLaunchConfig, id: &str) -> BrowserResult<PathBuf> {
+    let safe_id: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let dir = config.profile_base_dir.join(&safe_id);
+    match fs::create_dir_all(&dir) {
+        Ok(()) => Ok(dir),
+        Err(e) => {
+            // The profile id is usually a consumer's session id, a bearer,
+            // so the log names the base directory and never the profile's.
+            debug!(
+                error = %e,
+                base_dir = %config.profile_base_dir.display(),
+                "Failed to create persistent profile dir, falling back to ephemeral"
+            );
+            ephemeral_profile_dir()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -353,12 +362,24 @@ mod tests {
     }
 
     #[test]
-    fn ephemeral_dir_is_unique_prefix() {
-        let dir = ephemeral_profile_dir();
-        assert!(dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with("dravr-browser-")));
+    fn ephemeral_dirs_are_named_by_random_bits_and_never_shared() {
+        let dirs: Vec<PathBuf> = (0..64)
+            .map(|_| ephemeral_profile_dir().unwrap()) // Safe: the OS random source is available in tests
+            .collect();
+        for dir in &dirs {
+            let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            let suffix = name.strip_prefix("dravr-browser-").unwrap_or_default();
+            assert_eq!(suffix.len(), 32, "unexpected ephemeral dir name {name}");
+            assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()));
+        }
+        let mut unique = dirs.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(
+            unique.len(),
+            dirs.len(),
+            "two launches shared a profile dir"
+        );
     }
 
     #[test]
@@ -392,7 +413,7 @@ mod tests {
     async fn launch_times_out_when_chrome_never_answers() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = ephemeral_profile_dir();
+        let dir = ephemeral_profile_dir().unwrap(); // Safe: the OS random source is available in tests
         fs::create_dir_all(&dir).unwrap(); // Safe: test setup under temp_dir
         let fake = dir.join("chrome-that-never-answers.sh");
         fs::write(&fake, "#!/bin/sh\nexec sleep 30\n").unwrap(); // Safe: test setup
