@@ -290,16 +290,47 @@ pub async fn tick_checkbox(page: &Page, selector: &str) -> BrowserResult<()> {
     }
 }
 
-/// Read visible text from the first matching element, or `None` if missing/hidden.
+/// Read the trimmed text of the first element `selector` matches that is
+/// visible and holds text, or `None` when there is no such element or the
+/// page fails to evaluate the read.
+///
+/// `selector` may be a comma-separated list, read part by part in the order
+/// given. Every element a part matches is examined, in document order, before
+/// the next part is tried, so a hidden first match never masks a visible one
+/// after it. A part the browser cannot parse, or an empty one, is skipped.
+/// Parts are split on every comma, so a comma inside `:is()`, `:not()` or an
+/// attribute value splits the selector too, and a fragment the browser can
+/// still parse is read as a selector of its own, matching a different set of
+/// elements than the whole selector would.
+///
+/// Visible means painted with a size: a non-empty bounding box, and
+/// `checkVisibility` with opacity and `visibility` checked — or, in a browser
+/// without `checkVisibility`, the element's computed `display`, `visibility`
+/// and `opacity`. `offsetParent` is not used: it is null for a
+/// `position: fixed` element, such as a toast, that is plainly on screen. An
+/// element whose own box is empty reads as hidden even when its floated or
+/// absolutely positioned children paint.
 pub async fn read_visible_text(page: &Page, selector: &str) -> Option<String> {
     let escaped = escape_js_selector(selector);
     let js = format!(
         r#"(function() {{
-            var selectors = "{escaped}".split(",").map(function(s) {{ return s.trim(); }});
-            for (var i = 0; i < selectors.length; i++) {{
-                var el = document.querySelector(selectors[i]);
-                if (el && el.offsetParent !== null) {{
-                    var text = el.textContent.trim();
+            function shown(el) {{
+                var box = el.getBoundingClientRect();
+                if (box.width === 0 || box.height === 0) return false;
+                if (el.checkVisibility) {{
+                    return el.checkVisibility({{ checkOpacity: true, checkVisibilityCSS: true }});
+                }}
+                var style = getComputedStyle(el);
+                return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+            }}
+            var parts = "{escaped}".split(",").map(function(s) {{ return s.trim(); }});
+            for (var i = 0; i < parts.length; i++) {{
+                if (!parts[i]) continue;
+                var matches;
+                try {{ matches = document.querySelectorAll(parts[i]); }} catch (e) {{ continue; }}
+                for (var j = 0; j < matches.length; j++) {{
+                    if (!shown(matches[j])) continue;
+                    var text = matches[j].textContent.trim();
                     if (text) return text;
                 }}
             }}
