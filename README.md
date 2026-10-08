@@ -41,7 +41,7 @@ driving a web UI (fill a form, submit, read the streamed response).
 
 ```toml
 [dependencies]
-dravr-browser = "0.1"
+dravr-browser = "0.2"
 ```
 
 Requires a Chrome/Chromium binary on the host (auto-detected, or set `CHROME_PATH`).
