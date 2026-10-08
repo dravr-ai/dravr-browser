@@ -290,9 +290,17 @@ pub async fn tick_checkbox(page: &Page, selector: &str) -> BrowserResult<()> {
     }
 }
 
-/// Read the trimmed text of the first element `selector` matches that is
-/// visible and holds text, or `None` when there is no such element or the
-/// page fails to evaluate the read.
+/// Read the trimmed rendered text of the first element `selector` matches
+/// that is visible and holds text, or `None` when there is no such element or
+/// the page fails to evaluate the read.
+///
+/// Rendered text is the element's `innerText`: its text as the page lays it
+/// out, which leaves out whatever within it is not displayed, a `<script>` or
+/// `<style>` among them, or has `visibility: hidden`, and separates the blocks
+/// inside it with line breaks. An element without `innerText`, such as an SVG
+/// icon, holds no text for this read, so an icon matched ahead of a message is
+/// passed over for the message rather than answering with its `<title>` or
+/// styles.
 ///
 /// `selector` may be a comma-separated list, read part by part in the order
 /// given. Every element a part matches is examined, in document order, before
@@ -310,6 +318,10 @@ pub async fn tick_checkbox(page: &Page, selector: &str) -> BrowserResult<()> {
 /// `position: fixed` element, such as a toast, that is plainly on screen. An
 /// element whose own box is empty reads as hidden even when its floated or
 /// absolutely positioned children paint.
+///
+/// The page's `<html>` and `<body>` are never read, whatever `selector`
+/// matches: a message is an element within the page, and their text is the
+/// whole page.
 pub async fn read_visible_text(page: &Page, selector: &str) -> Option<String> {
     let escaped = escape_js_selector(selector);
     let js = format!(
@@ -329,8 +341,9 @@ pub async fn read_visible_text(page: &Page, selector: &str) -> Option<String> {
                 var matches;
                 try {{ matches = document.querySelectorAll(parts[i]); }} catch (e) {{ continue; }}
                 for (var j = 0; j < matches.length; j++) {{
-                    if (!shown(matches[j])) continue;
-                    var text = matches[j].textContent.trim();
+                    var el = matches[j];
+                    if (el === document.documentElement || el === document.body || !shown(el)) continue;
+                    var text = typeof el.innerText === "string" ? el.innerText.trim() : "";
                     if (text) return text;
                 }}
             }}
