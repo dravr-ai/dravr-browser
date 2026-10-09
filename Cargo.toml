@@ -64,7 +64,7 @@ redundant_pub_crate = "allow"
 
 [package]
 name = "dravr-browser"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Headless-Chrome automation primitives: launch, persistent profiles, stealth, CDP input, and streaming network capture"
