@@ -12,7 +12,7 @@ use chromiumoxide::Page;
 use tracing::debug;
 
 use crate::error::{BrowserError, BrowserResult};
-use crate::js_utils::escape_js_selector;
+use crate::js_utils::{escape_js_selector, with_selector_list};
 
 /// Click at coordinates `(x, y)` via CDP mouse press + release.
 pub async fn cdp_click_at(page: &Page, x: f64, y: f64) -> BrowserResult<()> {
@@ -133,38 +133,55 @@ pub async fn fill_input_field(page: &Page, selector: &str, value: &str) -> Brows
     Ok(())
 }
 
-/// Get the center coordinates of the first element matching `selector`.
+/// Get the center coordinates of the element `selector` locates.
 ///
-/// `selector` may be a comma-separated list of fallback selectors.
+/// `selector` may be a comma-separated list, read the way every helper in this
+/// module reads one: split at its top-level commas, part by part in the order
+/// given, every match of a part in document order, a part the browser cannot
+/// parse skipped. The element is the first match that is rendered — a box, not
+/// `display: none` or `visibility: hidden` — or the first match when none is,
+/// so a hidden copy of a field rendered ahead of the shown one never takes its
+/// place. A transparent element counts as rendered: an input laid with
+/// `opacity: 0` over the boxes a code step draws is the one that takes the
+/// typing.
+///
+/// A located element without a box (not displayed, or collapsed) has no point
+/// to click, and answers [`BrowserError::Interaction`] like a selector that
+/// matches nothing.
 pub async fn get_element_center(page: &Page, selector: &str) -> BrowserResult<(f64, f64)> {
     let escaped = escape_js_selector(selector);
-    let js = format!(
-        r#"(function() {{
-            var selectors = "{escaped}".split(",").map(function(s) {{ return s.trim(); }});
-            var el = null;
-            for (var i = 0; i < selectors.length; i++) {{
-                el = document.querySelector(selectors[i]);
-                if (el) break;
-            }}
-            if (!el) return null;
+    let js = with_selector_list(&format!(
+        r#"var el = locateElement("{escaped}");
+            if (!el) return "missing";
             var r = el.getBoundingClientRect();
-            return JSON.stringify({{x: r.x + r.width / 2, y: r.y + r.height / 2}});
-        }})()"#
-    );
+            if (r.width === 0 || r.height === 0) return "unboxed";
+            return JSON.stringify({{x: r.x + r.width / 2, y: r.y + r.height / 2}});"#
+    ));
 
     let result = page.evaluate(js).await.map_err(|e| BrowserError::Browser {
         reason: format!("Failed to locate '{selector}': {e}"),
     })?;
 
-    let coords_str = result
+    let answer = result
         .value()
         .and_then(|v| v.as_str().map(String::from))
-        .ok_or_else(|| BrowserError::Interaction {
-            reason: format!("Element not found for selector: {selector}"),
-        })?;
+        .unwrap_or_default();
+    match answer.as_str() {
+        "missing" | "" => {
+            return Err(BrowserError::Interaction {
+                reason: format!("Element not found for selector: {selector}"),
+            })
+        }
+        "unboxed" => {
+            return Err(BrowserError::Interaction {
+                reason: format!("Element for selector {selector} has no box to click"),
+            })
+        }
+        _ => {}
+    }
 
     let coords: serde_json::Value =
-        serde_json::from_str(&coords_str).map_err(|e| BrowserError::Browser {
+        serde_json::from_str(&answer).map_err(|e| BrowserError::Browser {
             reason: format!("Failed to parse element coordinates: {e}"),
         })?;
 
@@ -174,22 +191,24 @@ pub async fn get_element_center(page: &Page, selector: &str) -> BrowserResult<(f
     ))
 }
 
-/// Check whether a visible element matching `selector` exists in the DOM.
+/// Check whether `selector` matches an element that is rendered on the page
+/// for a user to act on: a box, and neither `display: none` nor
+/// `visibility: hidden` on it or an ancestor.
+///
+/// Every match of every part is examined, so a hidden first match never masks
+/// a rendered one after it, and a part the browser cannot parse never fails
+/// the check of the others. Rendered is the rule every helper here locates an
+/// element by (see [`get_element_center`]); a transparent element is rendered,
+/// as the input of a code step drawn over its own boxes is.
 pub async fn element_exists(page: &Page, selector: &str) -> bool {
     let escaped = escape_js_selector(selector);
-    let js = format!(
-        r#"(function() {{
-            var selectors = "{escaped}".split(",").map(function(s) {{ return s.trim(); }});
-            for (var i = 0; i < selectors.length; i++) {{
-                var el = document.querySelector(selectors[i]);
-                if (el) {{
-                    var r = el.getBoundingClientRect();
-                    if (r.width > 0 && r.height > 0) return "found";
-                }}
+    let js = with_selector_list(&format!(
+        r#"var matches = selectorMatches("{escaped}");
+            for (var i = 0; i < matches.length; i++) {{
+                if (isRendered(matches[i])) return "found";
             }}
-            return "not_found";
-        }})()"#
-    );
+            return "not_found";"#
+    ));
     page.evaluate(js)
         .await
         .ok()
@@ -197,34 +216,19 @@ pub async fn element_exists(page: &Page, selector: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Click the first element matching `selector`.
+/// Click the element `selector` locates — the first rendered match, or the
+/// first match when none is rendered (see [`get_element_center`]).
 ///
-/// Supports comma-separated fallback selectors and a `text:` prefix for
-/// matching by visible button/link text (e.g. `text:Sign in with Google`).
+/// A part with a `text:` prefix matches a button, link or `[role=button]` by
+/// its text (e.g. `text:Sign in with Google`).
 pub async fn click_element(page: &Page, selector: &str) -> BrowserResult<()> {
-    let escaped_selector = escape_js_selector(selector);
-    let js = format!(
-        r#"(function() {{
-            var parts = "{escaped_selector}".split(",").map(function(s) {{ return s.trim(); }});
-            for (var i = 0; i < parts.length; i++) {{
-                var sel = parts[i];
-                if (sel.indexOf("text:") === 0) {{
-                    var text = sel.substring(5);
-                    var buttons = document.querySelectorAll("button, a, [role=button]");
-                    for (var j = 0; j < buttons.length; j++) {{
-                        if (buttons[j].textContent.trim().indexOf(text) !== -1) {{
-                            buttons[j].click();
-                            return "clicked";
-                        }}
-                    }}
-                }} else {{
-                    var el = document.querySelector(sel);
-                    if (el) {{ el.click(); return "clicked"; }}
-                }}
-            }}
-            return "not_found";
-        }})()"#
-    );
+    let escaped = escape_js_selector(selector);
+    let js = with_selector_list(&format!(
+        r#"var el = locateElement("{escaped}");
+            if (!el) return "not_found";
+            el.click();
+            return "clicked";"#
+    ));
 
     let result = page.evaluate(js).await.map_err(|e| BrowserError::Browser {
         reason: format!("Failed to click '{selector}': {e}"),
@@ -248,24 +252,21 @@ pub async fn click_element(page: &Page, selector: &str) -> BrowserResult<()> {
 /// Tick the checkbox `selector` names — the checkbox itself, or the element
 /// that wraps it (a `<label>`) — unless it is already ticked.
 ///
-/// `selector` goes to `querySelector` whole, so a comma-separated list matches
-/// the first element in document order that fits any part of it. A form that
-/// refuses to submit until a consent box is ticked is otherwise a submission
-/// that silently never happens, so a box that is missing, or still unticked
-/// after the click, is an error rather than a skipped step.
+/// The element is the one `selector` locates (see [`get_element_center`]). A
+/// form that refuses to submit until a consent box is ticked is otherwise a
+/// submission that silently never happens, so a box that is missing, or still
+/// unticked after the click, is an error rather than a skipped step.
 pub async fn tick_checkbox(page: &Page, selector: &str) -> BrowserResult<()> {
     let escaped = escape_js_selector(selector);
-    let js = format!(
-        r#"(function() {{
-            var el = document.querySelector("{escaped}");
+    let js = with_selector_list(&format!(
+        r#"var el = locateElement("{escaped}");
             if (!el) return "missing";
             var box = el.matches('input[type="checkbox"]') ? el : el.querySelector('input[type="checkbox"]');
             if (!box) return "missing";
             if (box.checked) return "ticked";
             el.click();
-            return box.checked ? "ticked" : "unticked";
-        }})()"#
-    );
+            return box.checked ? "ticked" : "unticked";"#
+    ));
 
     let result = page.evaluate(js).await.map_err(|e| BrowserError::Browser {
         reason: format!("Failed to tick checkbox '{selector}': {e}"),
@@ -305,11 +306,9 @@ pub async fn tick_checkbox(page: &Page, selector: &str) -> BrowserResult<()> {
 /// `selector` may be a comma-separated list, read part by part in the order
 /// given. Every element a part matches is examined, in document order, before
 /// the next part is tried, so a hidden first match never masks a visible one
-/// after it. A part the browser cannot parse, or an empty one, is skipped.
-/// Parts are split on every comma, so a comma inside `:is()`, `:not()` or an
-/// attribute value splits the selector too, and a fragment the browser can
-/// still parse is read as a selector of its own, matching a different set of
-/// elements than the whole selector would.
+/// after it. A part the browser cannot parse, or an empty one, is skipped. The
+/// list is split at its top-level commas only: a comma inside `:is()`,
+/// `:not()` or a quoted attribute value stays in its part.
 ///
 /// Visible means painted with a size: a non-empty bounding box, and
 /// `checkVisibility` with opacity and `visibility` checked — or, in a browser
@@ -324,32 +323,16 @@ pub async fn tick_checkbox(page: &Page, selector: &str) -> BrowserResult<()> {
 /// whole page.
 pub async fn read_visible_text(page: &Page, selector: &str) -> Option<String> {
     let escaped = escape_js_selector(selector);
-    let js = format!(
-        r#"(function() {{
-            function shown(el) {{
-                var box = el.getBoundingClientRect();
-                if (box.width === 0 || box.height === 0) return false;
-                if (el.checkVisibility) {{
-                    return el.checkVisibility({{ checkOpacity: true, checkVisibilityCSS: true }});
-                }}
-                var style = getComputedStyle(el);
-                return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+    let js = with_selector_list(&format!(
+        r#"var matches = selectorMatches("{escaped}");
+            for (var i = 0; i < matches.length; i++) {{
+                var el = matches[i];
+                if (!isPainted(el)) continue;
+                var text = typeof el.innerText === "string" ? el.innerText.trim() : "";
+                if (text) return text;
             }}
-            var parts = "{escaped}".split(",").map(function(s) {{ return s.trim(); }});
-            for (var i = 0; i < parts.length; i++) {{
-                if (!parts[i]) continue;
-                var matches;
-                try {{ matches = document.querySelectorAll(parts[i]); }} catch (e) {{ continue; }}
-                for (var j = 0; j < matches.length; j++) {{
-                    var el = matches[j];
-                    if (el === document.documentElement || el === document.body || !shown(el)) continue;
-                    var text = typeof el.innerText === "string" ? el.innerText.trim() : "";
-                    if (text) return text;
-                }}
-            }}
-            return "";
-        }})()"#
-    );
+            return "";"#
+    ));
     let result = page.evaluate(js).await.ok()?;
     let text = result
         .value()
