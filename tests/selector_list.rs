@@ -14,9 +14,10 @@
 //!
 //! Chrome comes from `CHROME_PATH`, or chromiumoxide's own discovery when unset.
 
+use dravr_browser::js_utils::SELECTOR_LIST_JS;
 use dravr_browser::{
-    click_element, element_exists, get_element_center, launch_browser, tick_checkbox, Browser,
-    BrowserError, BrowserLaunchConfig, Page,
+    click_element, element_exists, fill_input_field, get_element_center, launch_browser,
+    tick_checkbox, Browser, BrowserError, BrowserLaunchConfig, Page,
 };
 
 /// A headless Chrome, on an ephemeral profile.
@@ -225,5 +226,34 @@ async fn a_tick_reaches_the_shown_box_past_a_hidden_copy() {
         )
         .await,
         "[false,true]"
+    );
+}
+
+#[tokio::test]
+async fn a_script_embedding_the_helper_locates_the_element_the_fill_typed_into() {
+    // A login snapshot reading the form itself must name the field the fill
+    // used: with the hidden mobile copy first in the document,
+    // `querySelector` on the whole list answers that copy instead.
+    let browser = launch().await;
+    let page = open(
+        &browser,
+        "data:text/html,<div class='mobile' style='display:none'>\
+         <input name='email' id='mobile-email'></div>\
+         <div class='desktop'><input name='email' id='desktop-email'></div>",
+    )
+    .await;
+    let selector = r#"#desktop-email, input[name="email"]"#;
+    fill_input_field(&page, selector, "athlete@example.com")
+        .await
+        .unwrap_or_else(|e| panic!("fill the email: {e}"));
+    let script = format!(
+        "(function() {{ {SELECTOR_LIST_JS} var el = locateElement({}); \
+         return JSON.stringify([el.id, el.value, document.querySelector({}).id]); }})()",
+        serde_json::Value::from(selector),
+        serde_json::Value::from(selector),
+    );
+    assert_eq!(
+        read_string(&page, &script).await,
+        r#"["desktop-email","athlete@example.com","mobile-email"]"#
     );
 }

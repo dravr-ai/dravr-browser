@@ -20,7 +20,12 @@ pub fn escape_js_selector(s: &str) -> String {
 }
 
 /// The one way every element helper in [`crate::input`] reads a selector
-/// list, as JavaScript function declarations:
+/// list, as JavaScript function declarations.
+///
+/// Public so a consumer that reads the page itself — a script reporting which
+/// field a form filled — resolves a selector list exactly as the helpers that
+/// filled it did, rather than with a reading of its own that can disagree.
+/// Embed it in the script's own scope, ahead of the code that calls it:
 ///
 /// - `selectorParts(list)` splits the list at its top-level commas only. A
 ///   comma inside parentheses (`:is()`, `:not()`), inside brackets or a quoted
@@ -46,7 +51,7 @@ pub fn escape_js_selector(s: &str) -> String {
 ///   their text is the whole page.
 /// - `locateElement(list)` is the element a helper acts on: the first rendered
 ///   match, or the first match when none is rendered, or `null`.
-pub(crate) const SELECTOR_LIST_JS: &str = r#"
+pub const SELECTOR_LIST_JS: &str = r#"
 function selectorParts(list) {
     var parts = [];
     var depth = 0;
