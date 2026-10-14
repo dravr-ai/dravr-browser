@@ -46,6 +46,19 @@ dravr-browser = "0.2"
 
 Requires a Chrome/Chromium binary on the host (auto-detected, or set `CHROME_PATH`).
 
+Everything that drives a browser sits behind the default `chrome` feature. A
+consumer that only carries a captured session between services — a remote
+client, say — takes the session data model without the browser stack:
+
+```toml
+[dependencies]
+dravr-browser = { version = "0.2", default-features = false }
+```
+
+That build keeps `AuthSession`, `CookieData`, `generate_session_id`, the error
+type, `js_utils`, the teardown signal and the `VisionAnalyzer` seam, and links no
+chromiumoxide.
+
 ## Modules
 
 | Module | Purpose |

@@ -4,10 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+#[cfg(feature = "chrome")]
 use chromiumoxide::cdp::browser_protocol::network::CookieParam;
+#[cfg(feature = "chrome")]
 use chromiumoxide::Page;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "chrome")]
 use tracing::debug;
 
 use crate::error::{BrowserError, BrowserResult};
@@ -44,6 +47,7 @@ pub struct CookieData {
 }
 
 /// Inject session cookies into a page before navigation.
+#[cfg(feature = "chrome")]
 pub async fn inject_cookies(page: &Page, session: &AuthSession) -> BrowserResult<()> {
     for cookie in &session.cookies {
         let mut param = CookieParam::new(&cookie.name, &cookie.value);
@@ -66,6 +70,7 @@ pub async fn inject_cookies(page: &Page, session: &AuthSession) -> BrowserResult
 /// Capture all cookies from the current page into an [`AuthSession`].
 ///
 /// Returns [`BrowserError::Auth`] if no cookies are present (login likely failed).
+#[cfg(feature = "chrome")]
 pub async fn capture_session(page: &Page) -> BrowserResult<AuthSession> {
     let cookies = page
         .get_cookies()

@@ -114,6 +114,7 @@ function locateElement(list) {
 /// A script that runs `body` — statements ending in a `return` — inside an
 /// immediately invoked function with [`SELECTOR_LIST_JS`] in scope, and
 /// evaluates to what `body` returns.
+#[cfg(feature = "chrome")]
 pub(crate) fn with_selector_list(body: &str) -> String {
     format!("(function() {{{SELECTOR_LIST_JS}{body}\n}})()")
 }

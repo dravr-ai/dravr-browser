@@ -25,6 +25,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --all-targets
+      # The session data model, without the browser: what a consumer that only
+      # carries a session between services builds.
+      - run: cargo check --no-default-features --all-targets
+      - run: cargo test --no-default-features
+      - name: Without `chrome` the crate links no chromiumoxide
+        run: |
+          if ! tree="$(cargo tree --no-default-features -e normal --prefix none)"; then exit 1; fi
+          grep -q '^dravr-browser v' <<<"$tree" || { echo "scan resolved nothing"; exit 1; }
+          if grep -q '^chromiumoxide ' <<<"$tree"; then echo "chromiumoxide leaked into the build without chrome"; exit 1; fi
+          echo "no chromiumoxide without chrome"
 
   clippy:
     name: Clippy
@@ -38,6 +48,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --quiet
+      - run: cargo clippy --no-default-features --all-targets --quiet
 
   fmt:
     name: Format

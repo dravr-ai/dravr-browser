@@ -78,11 +78,20 @@ readme = "README.md"
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+default = ["chrome"]
+# Driving a browser: launch, stealth, capture, CDP input and the page side of
+# a cookie session. Without it the crate is the session data model
+# (`AuthSession`, `CookieData`, session ids), the error type, the JS helpers,
+# the teardown signal and the vision seam, and links no chromiumoxide: what a
+# consumer that only carries a session between services needs.
+chrome = ["dep:chromiumoxide", "dep:futures"]
+
 [dependencies]
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
-chromiumoxide = "0.9"
-futures = "0.3"
+chromiumoxide = { version = "0.9", optional = true }
+futures = { version = "0.3", optional = true }
 getrandom = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -92,6 +101,23 @@ tracing = "0.1"
 
 [dev-dependencies]
 tokio = { version = "1.45", features = ["full", "test-util"] }
+
+# The tests that drive a real Chrome.
+[[test]]
+name = "launch_logging"
+required-features = ["chrome"]
+
+[[test]]
+name = "read_visible_text"
+required-features = ["chrome"]
+
+[[test]]
+name = "selector_list"
+required-features = ["chrome"]
+
+[[test]]
+name = "tick_checkbox"
+required-features = ["chrome"]
 
 [lints]
 workspace = true
