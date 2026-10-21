@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn empty_body_yields_no_events() {
-        assert!(parse_sse_data("").is_empty());
+        assert_eq!(parse_sse_data(""), Vec::<String>::new());
     }
 
     #[test]
