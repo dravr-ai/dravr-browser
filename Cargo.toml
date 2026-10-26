@@ -90,8 +90,10 @@ chrome = ["dep:chromiumoxide", "dep:futures"]
 [dependencies]
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
-chromiumoxide = { version = "0.9", optional = true }
-futures = { version = "0.3", optional = true }
+# `bytes` stays: lib.rs re-exports `Page`, and `Page::content_bytes` is behind it.
+chromiumoxide = { version = "0.9", default-features = false, features = ["bytes"], optional = true }
+# StreamExt over the CDP handler: neither the executor nor async/await macros.
+futures = { version = "0.3", default-features = false, optional = true }
 getrandom = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
