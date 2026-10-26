@@ -10,6 +10,7 @@ use chromiumoxide::cdp::browser_protocol::network::CookieParam;
 use chromiumoxide::Page;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 #[cfg(feature = "chrome")]
 use tracing::debug;
 
@@ -30,7 +31,10 @@ pub struct AuthSession {
 }
 
 /// A single browser cookie.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Its `Debug` prints the value as `[REDACTED]`: a cookie value is a live
+/// session credential, and an [`AuthSession`] reaches logs through `{:?}`.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CookieData {
     /// Cookie name.
     pub name: String,
@@ -44,6 +48,19 @@ pub struct CookieData {
     pub secure: bool,
     /// Whether the cookie is HTTP-only.
     pub http_only: bool,
+}
+
+impl fmt::Debug for CookieData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CookieData")
+            .field("name", &self.name)
+            .field("value", &"[REDACTED]")
+            .field("domain", &self.domain)
+            .field("path", &self.path)
+            .field("secure", &self.secure)
+            .field("http_only", &self.http_only)
+            .finish()
+    }
 }
 
 /// Inject session cookies into a page before navigation.
