@@ -18,3 +18,6 @@
   same login, such as an SSO domain.
 - `inject_cookies` sets each cookie's expiry when it has one, so a persistent
   cookie stays persistent in the browser it is replayed into.
+- `BrowserLaunchConfig::effective_user_agent()`: the `User-Agent` Chrome is
+  launched with (the configured one, else the platform default), so a client
+  replaying a captured session can present the same browser.

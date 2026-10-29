@@ -85,6 +85,23 @@ impl Default for BrowserLaunchConfig {
     }
 }
 
+impl BrowserLaunchConfig {
+    /// The `User-Agent` Chrome is launched with: the configured one
+    /// (`DRAVR_BROWSER_USER_AGENT`) when set, else the host platform's
+    /// default. A non-browser client replaying a session captured from this
+    /// Chrome sends the same string, so the provider sees one browser.
+    ///
+    /// It describes a Chrome that [`launch_browser`] spawns. A Chrome attached
+    /// through [`CONNECT_URL_ENV`] keeps whatever `User-Agent` it was started
+    /// with, which this value does not reflect.
+    #[must_use]
+    pub fn effective_user_agent(&self) -> String {
+        self.user_agent
+            .clone()
+            .unwrap_or_else(|| default_user_agent().to_owned())
+    }
+}
+
 /// Default `User-Agent` matching the host platform so the fingerprint is
 /// consistent with the egress IP (mismatches trigger Cloudflare escalation).
 fn default_user_agent() -> &'static str {
@@ -139,10 +156,7 @@ pub async fn launch_browser(
         "Translate,IsolateOrigins,site-per-process",
     ));
 
-    let user_agent = config
-        .user_agent
-        .clone()
-        .unwrap_or_else(|| default_user_agent().to_owned());
+    let user_agent = config.effective_user_agent();
 
     builder = builder.arg("disable-gpu");
 
@@ -331,6 +345,28 @@ mod tests {
     fn default_config_is_headless() {
         let cfg = BrowserLaunchConfig::default();
         assert!(cfg.headless);
+    }
+
+    #[test]
+    fn the_effective_user_agent_is_the_configured_one_else_the_platform_default() {
+        let configured = BrowserLaunchConfig {
+            user_agent: Some("Configured/1.0".to_owned()),
+            ..BrowserLaunchConfig::default()
+        };
+        assert_eq!(
+            configured.effective_user_agent(),
+            "Configured/1.0",
+            "a configured user agent wins"
+        );
+        let unset = BrowserLaunchConfig {
+            user_agent: None,
+            ..BrowserLaunchConfig::default()
+        };
+        assert_eq!(
+            unset.effective_user_agent(),
+            default_user_agent(),
+            "no configured user agent falls back to the platform default"
+        );
     }
 
     #[test]
