@@ -30,6 +30,9 @@ persistence, bot-detection evasion, and response capture every time.
   type, fill, locate, read — that real UIs and bot detectors accept.
 - **Snapshot and replay sessions.** Capture a logged-in session's cookies into a
   serializable `AuthSession` and inject them into another browser.
+  `capture_browser_session` reads the browser's whole cookie jar, every host of
+  a login that crosses domains (an SSO host included), each cookie with its
+  expiry; `capture_session` reads only the cookies the current page's URL sees.
 - **Vision fallback, LLM-agnostic.** A `VisionAnalyzer` trait you implement to
   analyze page screenshots with your own model when selectors drift — the crate
   itself never depends on any LLM.
@@ -67,7 +70,7 @@ chromiumoxide.
 | `stealth` | Anti-detection JS + an optional network-capture hook (`StealthOptions`), incl. a streaming variant that tees SSE bodies. |
 | `capture` | Read the capture buffer (`read_last_capture`) and parse SSE `data:` payloads (`parse_sse_data`). |
 | `input` | CDP mouse/keyboard input and DOM helpers (click, fill, locate, read). |
-| `session` | Capture / inject cookie sessions (`AuthSession`, `CookieData`). |
+| `session` | Capture / inject cookie sessions (`AuthSession`, `CookieData`): the whole jar (`capture_browser_session`) or one page's cookies (`capture_session`). |
 | `vision` | The `VisionAnalyzer` seam for screenshot analysis. |
 | `teardown_signal` | Suppress chromiumoxide's expected post-close WS-reset error. |
 

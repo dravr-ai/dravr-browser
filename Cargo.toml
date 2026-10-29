@@ -107,6 +107,10 @@ tokio = { version = "1.45", features = ["full", "test-util"] }
 
 # The tests that drive a real Chrome.
 [[test]]
+name = "browser_session"
+required-features = ["chrome"]
+
+[[test]]
 name = "launch_logging"
 required-features = ["chrome"]
 

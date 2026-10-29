@@ -19,6 +19,7 @@ fn session() -> AuthSession {
             path: "/".to_owned(),
             secure: true,
             http_only: true,
+            expires: None,
         }],
         created_at: Utc::now(),
         expires_at: None,

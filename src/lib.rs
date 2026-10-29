@@ -82,7 +82,7 @@ pub use launch::{
     connect_browser, launch_browser, open_page_with_stealth, BrowserLaunchConfig, CONNECT_URL_ENV,
 };
 #[cfg(feature = "chrome")]
-pub use session::{capture_session, inject_cookies};
+pub use session::{capture_browser_session, capture_session, inject_cookies};
 pub use session::{generate_session_id, AuthSession, CookieData};
 #[cfg(feature = "chrome")]
 pub use stealth::{apply_stealth, StealthOptions, CAPTURE_GLOBAL};
