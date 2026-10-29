@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.0] — 2026-10-29
+
+### Added
+
+- feat(launch): expose the effective launch user agent
+- feat(session): capture the browser's full cookie jar with expiry
+
+### Other
+
+- build(cargo): declare rust-version, the fleet pin
+- build(cargo): name the features of every optional dependency
+
+
 ### Breaking
 
 - `CookieData` has a new public field, `expires: Option<f64>`: the cookie's
