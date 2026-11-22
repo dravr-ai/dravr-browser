@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
 use dravr_browser::session::{AuthSession, CookieData};
+use dravr_tronc::dates::Timestamp;
 
 const SENTINEL: &str = "sentinel-cookie-value-7f3a";
 
@@ -21,7 +21,7 @@ fn session() -> AuthSession {
             http_only: true,
             expires: None,
         }],
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: None,
     }
 }

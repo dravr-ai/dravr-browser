@@ -13,17 +13,17 @@
 //! Chrome comes from `CHROME_PATH`, or chromiumoxide's own discovery when unset.
 
 use chromiumoxide::cdp::browser_protocol::network::{CookieParam, TimeSinceEpoch};
-use chrono::{Duration, Utc};
 use dravr_browser::session::CookieData;
 use dravr_browser::{
     capture_browser_session, capture_session, launch_browser, BrowserLaunchConfig,
 };
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use tokio::net::TcpListener;
 
 /// A month from now, in whole seconds since the epoch: inside Chrome's
 /// 400-day cap on a cookie's lifetime, which clamps any later date.
 fn a_month_from_now() -> i64 {
-    (Utc::now() + Duration::days(30)).timestamp()
+    (Timestamp::now() + Elapsed::days(30)).epoch_seconds()
 }
 
 /// Serve one empty HTML page on `127.0.0.1`, answering every connection the

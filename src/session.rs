@@ -8,7 +8,7 @@
 use chromiumoxide::cdp::browser_protocol::network::{Cookie, CookieParam, TimeSinceEpoch};
 #[cfg(feature = "chrome")]
 use chromiumoxide::{Browser, Page};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 #[cfg(feature = "chrome")]
@@ -24,7 +24,7 @@ pub struct AuthSession {
     /// Captured browser cookies.
     pub cookies: Vec<CookieData>,
     /// When this session was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When this session expires, if known.
     ///
     /// A capture leaves it `None`: a login's jar holds short-lived analytics
@@ -33,7 +33,7 @@ pub struct AuthSession {
     /// ([`CookieData::expires`]); whether the session still works is the
     /// site's answer to a request.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
 }
 
 /// A single browser cookie.
@@ -135,7 +135,7 @@ fn session_from_cookies(cookies: &[Cookie]) -> BrowserResult<AuthSession> {
     Ok(AuthSession {
         session_id: generate_session_id()?,
         cookies: cookie_data,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: None,
     })
 }
@@ -235,7 +235,7 @@ mod tests {
                 http_only: true,
                 expires: None,
             }],
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             expires_at: None,
         };
         let json = serde_json::to_string(&session).unwrap(); // Safe: test with a valid struct
