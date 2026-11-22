@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.0] — 2026-11-22
+
+### Added
+
+- feat(dates)!: public date fields are dravr_tronc::dates types
+
+
 ## [1.0.0] — 2026-10-29
 
 ### Added
