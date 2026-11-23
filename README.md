@@ -5,11 +5,11 @@
 [![CI](https://github.com/dravr-ai/dravr-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/dravr-ai/dravr-browser/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](#license)
 
-A headless-Chrome automation library for **driving and scraping real, logged-in
-web apps**. It wraps the Chrome DevTools Protocol (via
+A headless-Chrome automation library for **driving real, logged-in web apps on
+your own account**. It wraps the Chrome DevTools Protocol (via
 [`chromiumoxide`](https://crates.io/crates/chromiumoxide)) with the parts you
-actually need to automate an authenticated site — without re-implementing login
-persistence, bot-detection evasion, and response capture every time.
+actually need to automate a site you are signed in to — without re-implementing
+profile persistence, page setup, and response capture every time.
 
 ## What it does
 
@@ -17,17 +17,19 @@ persistence, bot-detection evasion, and response capture every time.
   profile, so cookies — including Cloudflare's `cf_clearance` and your session —
   survive across runs. Sign in by hand once (headed); subsequent runs are
   headless and already authenticated.
-- **Get past bot detection.** Injects stealth tweaks (via CDP, before any page
-  script runs) that hide the automation tells Cloudflare and Google sign-in
-  check for, so a headless browser loads the real page instead of a challenge.
+- **Set the page up before it runs.** Installs its page setup script and the
+  optional capture hook through CDP, before any page script runs (the
+  `stealth` module), so a headless page behaves like the same page in a
+  windowed Chrome.
 - **Read the page's own API responses.** A capture hook intercepts the
   `fetch`/`XHR` responses the page makes — including **streaming SSE** bodies as
   they arrive — so you extract data straight from the site's successful API
   calls. (Replaying those calls yourself usually fails: you lose the origin,
   referer, and per-request anti-replay tokens. Reading the page's own fetches
   doesn't.)
-- **Drive the page like a human.** CDP-level mouse and keyboard input — click,
-  type, fill, locate, read — that real UIs and bot detectors accept.
+- **Drive the page through real input events.** CDP-level mouse and keyboard
+  input — click, type, fill, locate, read — that real UIs respond to as they
+  do to a person.
 - **Snapshot and replay sessions.** Capture a logged-in session's cookies into a
   serializable `AuthSession` and inject them into another browser.
   `capture_browser_session` reads the browser's whole cookie jar, every host of
@@ -37,8 +39,9 @@ persistence, bot-detection evasion, and response capture every time.
   analyze page screenshots with your own model when selectors drift — the crate
   itself never depends on any LLM.
 
-Typical uses: scraping data from sites behind a login, or programmatically
-driving a web UI (fill a form, submit, read the streamed response).
+Typical uses: reading your own data from a site you are signed in to, or
+programmatically driving a web UI (fill a form, submit, read the streamed
+response).
 
 ## Install
 
@@ -67,14 +70,14 @@ chromiumoxide.
 | Module | Purpose |
 |--------|---------|
 | `launch` | Launch Chrome with a persistent profile, or attach to an external Chrome via CDP (`connect_browser`). |
-| `stealth` | Anti-detection JS + an optional network-capture hook (`StealthOptions`), incl. a streaming variant that tees SSE bodies. |
+| `stealth` | The page setup script + an optional network-capture hook (`StealthOptions`), incl. a streaming variant that tees SSE bodies. |
 | `capture` | Read the capture buffer (`read_last_capture`) and parse SSE `data:` payloads (`parse_sse_data`). |
 | `input` | CDP mouse/keyboard input and DOM helpers (click, fill, locate, read). |
 | `session` | Capture / inject cookie sessions (`AuthSession`, `CookieData`): the whole jar (`capture_browser_session`) or one page's cookies (`capture_session`). |
 | `vision` | The `VisionAnalyzer` seam for screenshot analysis. |
 | `teardown_signal` | Suppress chromiumoxide's expected post-close WS-reset error. |
 
-## Log in once, scrape headlessly
+## Log in once, run headlessly
 
 ```rust,no_run
 use dravr_browser::{launch_browser, open_page_with_stealth, BrowserLaunchConfig, StealthOptions};
