@@ -93,7 +93,7 @@ async-trait = "0.1"
 # The date types of the session model (`AuthSession::created_at`,
 # `expires_at`). No default features: tronc's base only, no server, no
 # notifications.
-dravr-tronc = { version = "7.1.0", default-features = false }
+dravr-tronc = { version = "8.0.0", default-features = false }
 # `bytes` stays: lib.rs re-exports `Page`, and `Page::content_bytes` is behind it.
 chromiumoxide = { version = "0.9", default-features = false, features = ["bytes"], optional = true }
 # StreamExt over the CDP handler: neither the executor nor async/await macros.
