@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.0] — 2026-11-25
+
+### Other
+
+- build(deps)!: move dravr-tronc to 8.0.0
+
+
 ## [2.0.0] — 2026-11-22
 
 ### Added

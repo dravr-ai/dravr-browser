@@ -47,7 +47,7 @@ response).
 
 ```toml
 [dependencies]
-dravr-browser = "2.0"
+dravr-browser = "3.0"
 ```
 
 Requires a Chrome/Chromium binary on the host (auto-detected, or set `CHROME_PATH`).
@@ -58,7 +58,7 @@ client, say — takes the session data model without the browser stack:
 
 ```toml
 [dependencies]
-dravr-browser = { version = "2.0", default-features = false }
+dravr-browser = { version = "3.0", default-features = false }
 ```
 
 That build keeps `AuthSession`, `CookieData`, `generate_session_id`, the error
